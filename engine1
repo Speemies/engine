@@ -71,7 +71,7 @@ end
 
 if Settings.AutoCollect then
     coroutine.wrap(function()
-        while task.wait(.5) do
+        while task.wait(.1) do
             local orbs = {}
             for _,v in pairs(workspace["__THINGS"].Orbs:GetChildren()) do
                 table.insert(orbs, { v.Name })
@@ -104,7 +104,7 @@ rangeCircle.Parent = workspace
 
 local pets = GetPets()
 coroutine.wrap(function()
-    while task.wait(1) do
+    while task.wait() do
         local plr_pos = LocalPlayer.Character.HumanoidRootPart.Position
         local radius = Settings.FarmRadius or 50
 
@@ -123,7 +123,7 @@ coroutine.wrap(function()
 
                     task.spawn(_.Network.Fire, "Breakables_JoinPet", v.Name, pet)
                     task.spawn(_.Network.Fire, "Breakables_PlayerDealDamage", v.Name)
-                    task.wait(1)
+                    task.wait(.1)
                 end
             end
         end
