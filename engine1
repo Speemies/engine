@@ -104,7 +104,7 @@ rangeCircle.Parent = workspace
 
 local pets = GetPets()
 coroutine.wrap(function()
-    while task.wait() do
+    while task.wait(1) do
         local plr_pos = LocalPlayer.Character.HumanoidRootPart.Position
         local radius = Settings.FarmRadius or 50
 
@@ -123,7 +123,7 @@ coroutine.wrap(function()
 
                     task.spawn(_.Network.Fire, "Breakables_JoinPet", v.Name, pet)
                     task.spawn(_.Network.Fire, "Breakables_PlayerDealDamage", v.Name)
-                    task.wait(.3)
+                    task.wait(1)
                 end
             end
         end
