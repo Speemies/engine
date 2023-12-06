@@ -71,7 +71,7 @@ end
 
 if Settings.AutoCollect then
     coroutine.wrap(function()
-        while task.wait(.1) do
+        while task.wait(.5) do
             local orbs = {}
             for _,v in pairs(workspace["__THINGS"].Orbs:GetChildren()) do
                 table.insert(orbs, { v.Name })
