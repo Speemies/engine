@@ -123,7 +123,7 @@ coroutine.wrap(function()
 
                     task.spawn(_.Network.Fire, "Breakables_JoinPet", v.Name, pet)
                     task.spawn(_.Network.Fire, "Breakables_PlayerDealDamage", v.Name)
-                    task.wait(.2)
+                    task.wait(.3)
                 end
             end
         end
