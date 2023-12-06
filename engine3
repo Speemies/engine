@@ -1,13 +1,15 @@
 getgenv().Settings = {
     DisableRendering = true,
-    AutoCollect = true,
-    FarmMode = "Completion", -- VIP / Completion
-    FarmRadius = 60
+    DowngradedQuality = true,
+
+    FarmMode = "VIP", -- VIP / Completion
+    FarmRadius = 60,
+    AutoCollect = true
 }
 
 local Settings = getgenv().Settings
 
-repeat task.wait(20) until game:IsLoaded()
+repeat task.wait() until game:IsLoaded()
 
 local RunService = game:GetService("RunService")
 local RS = game:GetService("ReplicatedStorage")
@@ -21,15 +23,140 @@ repeat task.wait() until _.Loaded
 local LocalPlayer = game:GetService("Players").LocalPlayer
 local ZONES = debug.getupvalues(_.ZoneCmds.GetMaximumZone)[2].Zones
 
-function GetPets()
+setreadonly(table, false)
+
+table.filter = function(t: table, pred: (any, any) -> boolean): table
+    local result = {}
+    for k,v in pairs(t) do
+        if pred(k, v) then result[k] = v end
+    end
+    return result
+end
+
+table.iterableFilter = function(t: table, pred: (any, any) -> boolean): table
+    return table.iterable(table.filter(t, pred))
+end
+
+table.map = function(t: table, pred: (any, any) -> any): table
+    local result = {}
+    for k,v in pairs(t) do
+        result[k] = pred(k, v)
+    end
+    return result
+end
+
+table.sorted = function(t: table, pred: (any, any) -> boolean): table
+    table.sort(t, pred)
+    return t
+end
+
+table.keys = function(t: table): table
+    local keys = {}
+    for k,_ in pairs(t) do
+        table.insert(keys, k)
+    end
+    return keys
+end
+
+table.values = function(t: table): table
+    local values = {}
+    for _,v in pairs(t) do
+        table.insert(values, v)
+    end
+    return values
+end
+
+table.iterable = function(t: table, pred: (any, any) -> boolean): table
+    local result = {}
+    for k,v in pairs(t) do
+        table.insert(result, pred and pred(k, v) or v)
+    end
+    return result
+end
+
+local FarmingPets = {}
+function GetFarmPets()
     local pets = {}
     for id,_ in pairs(_.PetCmds.GetEquipped()) do
-        table.insert(pets, id)
+        if not FarmingPets[id] then
+            table.insert(pets, id)
+        end
     end
     return pets
 end
 
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Speemies/engine/main/engine2"))()
+function FarmCoin(id, pet)
+    FarmingPets[id] = pet
+    repeat
+        _.Network.Fire("Breakables_JoinPet", id, pet)
+        task.wait(.1)
+    until not workspace["__THINGS"].Breakables:FindFirstChild(id)
+    table.remove(FarmingPets, id)
+end
+
+local CanTap = true
+function Tap(id)
+    if CanTap then
+        _.Network.Fire("Breakables_PlayerDealDamage", id)
+        CanTap = false
+        task.delay(0.1, function()
+            CanTap = true
+        end)
+    end
+end
+
+function GetAllCoinModels()
+    return table.iterableFilter(workspace["__THINGS"].Breakables:GetChildren(), function(_,v)
+        return v:IsA("Model") and v:FindFirstChild("Hitbox", true)
+    end)
+end
+
+function GetMaxZoneUpgrade(zone)
+    local up = {}
+    for _,v in pairs(_.UpgradeCmds.All()) do up[v.ZoneID] = v.UpgradeID end
+    local zone = (zone or _.ZoneCmds.GetMaximumZone()).ZoneName
+    return up[zone], zone
+end
+
+local CanBuyZone = true
+function TryBuyZone()
+    if CanBuyZone then
+        local bought = _.Network.Invoke("Zones_RequestPurchase", _.ZoneCmds.GetNextZone())
+        if not bought then
+            CanBuyZone = false
+            task.delay(15, function()
+                CanBuyZone = true
+            end)
+        end
+    end
+end
+
+if not getgenv().patched then
+    getgenv().patched = true
+
+    local Blunder = require(RS:FindFirstChild("BlunderList", true))
+    local OldGet = Blunder.getAndClear
+
+    setreadonly(Blunder, false)
+    Blunder.getAndClear = function(...)
+        local Packet = ...
+        for i,v in next, Packet.list do
+            if v.message ~= "PING" then
+                table.remove(Packet.list, i)
+            end
+        end
+        return OldGet(Packet)
+    end
+
+    local Audio = require(RS:WaitForChild("Library", 10):WaitForChild("Audio", 10))
+    hookfunction(Audio.Play, function(...)
+        return {
+            Play = function() end,
+            Stop = function() end,
+            IsPlaying = function() return false end
+        }
+    end)
+end
 
 LocalPlayer.PlayerScripts.Scripts.Core["Idle Tracking"].Enabled = false
 for _,v in pairs(getconnections(LocalPlayer.Idled)) do
@@ -57,6 +184,40 @@ if Settings.DisableRendering then
     end)
 end
 
+if Settings.DowngradedQuality then
+    local lighting = game.Lighting
+    lighting.GlobalShadows = false
+    lighting.FogStart = 0
+    lighting.FogEnd = 0
+    lighting.Brightness = 0
+    settings().Rendering.QualityLevel = "Level01"
+
+    for _,v in pairs(game:GetDescendants()) do
+        pcall(function()
+            if v:IsA("Part") or v:IsA("UnionOperation") or v:IsA("CornerWedgePart") or v:IsA("TrussPart") then
+                v.Material = "Plastic"
+                v.Reflectance = 0
+            elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+                v.Lifetime = NumberRange.new(0)
+            elseif v:IsA("Explosion") then
+                v.BlastPressure = 1
+                v.BlastRadius = 1
+            elseif v:IsA("Fire") or v:IsA("SpotLight") or v:IsA("Smoke") or v:IsA("Sparkles") then
+                v.Enabled = false
+            elseif v:IsA("MeshPart") then
+                v.Material = "Plastic"
+                v.Reflectance = 0
+            end
+        end)
+    end
+
+    for _,e in pairs(lighting:GetChildren()) do
+        if e:IsA("BlurEffect") or e:IsA("SunRaysEffect") or e:IsA("ColorCorrectionEffect") or e:IsA("BloomEffect") or e:IsA("DepthOfFieldEffect") then
+            e.Enabled = false
+        end
+    end
+end
+
 if Settings.FarmMode:lower() == "vip" and _.Gamepasses.Owns(257811346) then
     local zone = ZONES["Spawn"].ZoneFolder.INTERACT:FindFirstChild("VIP", true)
     local char = LocalPlayer.Character
@@ -71,19 +232,17 @@ end
 
 if Settings.AutoCollect then
     coroutine.wrap(function()
-        while task.wait(.1) do
-            local orbs = {}
-            for _,v in pairs(workspace["__THINGS"].Orbs:GetChildren()) do
-                table.insert(orbs, { v.Name })
-            end
-            pcall(_.Network.Fire, "Orbs_ClaimMultiple", orbs)
+        while task.wait(.3) do
+            pcall(_.Network.Fire, "Orbs_ClaimMultiple",
+                table.iterable(workspace["__THINGS"].Orbs:GetChildren(), function(_,v) return { v.Name } end)
+            )
 
             local Claim = getsenv(LocalPlayer.PlayerScripts.Scripts.Game["Lootbags Frontend"]).Claim
             for i,v in pairs(debug.getupvalue(Claim, 1)) do
                 if v.readyForCollection() then Claim(i) end
             end
 
-            for i,v in pairs(LocalPlayer.PlayerGui._MISC.FreeGifts.Frame.ItemsFrame.Gifts:GetDescendants()) do
+            for _i,v in pairs(LocalPlayer.PlayerGui._MISC.FreeGifts.Frame.ItemsFrame.Gifts:GetDescendants()) do
                 if v.ClassName == "TextLabel" and v.Text == "Redeem!" then
                     _.Network.Invoke("Redeem Free Gift", tonumber(string.match(v.Parent.Name, "%d+")))
                 end
@@ -102,39 +261,66 @@ rangeCircle.Transparency = 0.6
 rangeCircle.BrickColor = BrickColor.new("Bright blue")
 rangeCircle.Parent = workspace
 
-local pets = GetPets()
 coroutine.wrap(function()
-    while task.wait() do
+    while task.wait(.1) do
         local plr_pos = LocalPlayer.Character.HumanoidRootPart.Position
         local radius = Settings.FarmRadius or 50
 
         rangeCircle.Size = Vector3.new(0.1, radius * 2, radius * 2)
         rangeCircle.Position = plr_pos - Vector3.new(0, 2, 0)
 
-        for i,v in pairs(workspace["__THINGS"].Breakables:GetChildren()) do
-            if v:IsA("Model") then
-                local hitbox = v:FindFirstChild("Hitbox", true)
-                if not hitbox then continue end
+        local function GetMag(v)
+            return (plr_pos - v:FindFirstChild("Hitbox", true).Position).magnitude
+        end
 
-                if (plr_pos - hitbox.Position).magnitude < radius then
-                    if #pets == 0 then pets = GetPets() end
-                    local pet = pets[1]
-                    table.remove(pets, 1)
+        local coins = table.iterable(table.map(
+            table.sorted(
+                table.iterableFilter(GetAllCoinModels(), function(_,v) return GetMag(v) <= radius end),
+                function(a, b) return GetMag(a) < GetMag(b) end
+            ),
+            function(_,v) return v.Name end
+        ))
 
-                    task.spawn(_.Network.Fire, "Breakables_JoinPet", v.Name, pet)
-                    task.spawn(_.Network.Fire, "Breakables_PlayerDealDamage", v.Name)
-                    task.wait(.1)
-                end
-            end
+        if #coins == 0 then continue end
+        local coin = coins[1]
+        table.remove(coins, 1)
+
+        Tap(coin)
+        for _,p in pairs(GetFarmPets()) do
+            task.spawn(FarmCoin, coin, p)
+            task.wait(.1)
         end
     end
 end)()
 
 if Settings.FarmMode:lower() == "completion" then
-    while task.wait(1) do
-        LocalPlayer.Character.HumanoidRootPart.CFrame = _.ZoneCmds.GetMaximumZone().ZoneFolder.INTERACT.BREAKABLE_SPAWNS:FindFirstChildOfClass("Part").CFrame
+    coroutine.wrap(function()
+        local hrp = LocalPlayer.Character.HumanoidRootPart
+        while true do
+            local maxzone = _.ZoneCmds.GetMaximumZone()
 
-        local bought = _.Network.Invoke("Zones_RequestPurchase", _.ZoneCmds.GetNextZone())
-        if not bought then task.wait(30) end
-    end
+            local up, zone = GetMaxZoneUpgrade(maxzone)
+            if up ~= nil and not _.UpgradeCmds.Owns(up, zone) then
+                hrp.CFrame = maxzone.ZoneFolder.INTERACT.Upgrades[up]:FindFirstChild("Pad").CFrame
+                task.wait(1)
+                _.UpgradeCmds.Purchase(up, zone)
+                task.wait(1)
+            end
+
+            local tppart = maxzone.ZoneFolder.INTERACT.BREAKABLE_SPAWNS:FindFirstChildOfClass("Part")
+            if (hrp.Position - tppart.Position).magnitude >= 10 then
+                hrp.CFrame = tppart.CFrame
+            end
+
+            local zonenum = maxzone.ZoneNumber
+            local rebirth = _.RebirthCmds.Get() == 0
+            if (zonenum == 25 and rebirth == 0) or (zonenum == 50 and rebirth == 1) then
+                --rebirth here
+            end
+
+            TryBuyZone()
+
+            task.wait(1)
+        end
+    end)()
 end
