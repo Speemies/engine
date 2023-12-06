@@ -29,7 +29,7 @@ function GetPets()
     return pets
 end
 
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Speemies/engine/main/engine2"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Speemies/engine/main/engine2.lua"))()
 
 LocalPlayer.PlayerScripts.Scripts.Core["Idle Tracking"].Enabled = false
 for _,v in pairs(getconnections(LocalPlayer.Idled)) do
