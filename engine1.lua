@@ -7,7 +7,7 @@ getgenv().Settings = {
 
 local Settings = getgenv().Settings
 
-repeat task.wait() until game:IsLoaded()
+repeat task.wait(10) until game:IsLoaded()
 
 local RunService = game:GetService("RunService")
 local RS = game:GetService("ReplicatedStorage")
