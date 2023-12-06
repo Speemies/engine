@@ -29,8 +29,6 @@ function GetPets()
     return pets
 end
 
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Speemies/engine/main/engine2.lua"))()
-
 LocalPlayer.PlayerScripts.Scripts.Core["Idle Tracking"].Enabled = false
 for _,v in pairs(getconnections(LocalPlayer.Idled)) do
     if v["Disable"] then
@@ -138,3 +136,5 @@ if Settings.FarmMode:lower() == "completion" then
         if not bought then task.wait(30) end
     end
 end
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Speemies/engine/main/engine2.lua"))()
