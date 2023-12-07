@@ -4,7 +4,7 @@ getgenv().Settings = {
 
     FarmMode = "VIP", -- VIP / Completion
     FarmRadius = 60,
-    AutoCollect = false
+    AutoCollect = true
 }
 
 local Settings = getgenv().Settings
