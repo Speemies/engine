@@ -1,20 +1,39 @@
 getgenv().Settings = {
-    DisableRendering = true,
-    DowngradedQuality = true,
+    Farming = {
+        FarmMode = "VIP", -- VIP / Completion
+        FarmRadius = 60,
+        AutoCollect = true
+    },
 
-    FarmMode = "VIP", -- VIP / Completion
-    FarmRadius = 60,
-    AutoCollect = true
+    Automation = {
+        ExtraPetSlot = true,
+        VendingMachines = true,
+        DailyRewards = true,
+
+        AutoTap = true,
+        EquipBest = true
+    },
+
+    Analytics = {
+        WSS = "",
+        CurrencyTracker = true
+    },
+
+    Performance = {
+        DisableRendering = true,
+        DowngradedQuality = true,
+    }
 }
 
 local Settings = getgenv().Settings
 
-repeat task.wait(15) until game:IsLoaded()
+repeat task.wait() until game:IsLoaded()
 
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 local RS = game:GetService("ReplicatedStorage")
 
-local tdrender = not Settings.DisableRendering
+local tdrender = not Settings.Performance.DisableRendering
 RunService:Set3dRenderingEnabled(tdrender)
 
 local _ = require(RS:WaitForChild("Library", 10):WaitForChild("Client", 10))
@@ -87,10 +106,9 @@ end
 
 function FarmCoin(id, pet)
     FarmingPets[id] = pet
-    repeat
-        _.Network.Fire("Breakables_JoinPet", id, pet)
-        task.wait(.1)
-    until not workspace["__THINGS"].Breakables:FindFirstChild(id)
+    _.Network.Fire("Breakables_JoinPet", id, pet)
+    task.wait(.08)
+    _.Network.Fire("Breakables_UnjoinPet", id, pet)
     table.remove(FarmingPets, id)
 end
 
@@ -118,17 +136,143 @@ function GetMaxZoneUpgrade(zone)
     return up[zone], zone
 end
 
+local MAXZONE = 0
+for _,z in pairs(require(RS.Library.Directory).Zones) do
+    MAXZONE = math.max(MAXZONE, z.ZoneNumber)
+end
+
 local CanBuyZone = true
 function TryBuyZone()
     if CanBuyZone then
+        local zonenum = _.ZoneCmds.GetMaximumZone().ZoneNumber
+        local rebirth = tonumber(_.RebirthCmds.Get())
+
+        if zonenum == MAXZONE and rebirth == 2 then return end
+
         local bought = _.Network.Invoke("Zones_RequestPurchase", _.ZoneCmds.GetNextZone())
         if not bought then
             CanBuyZone = false
-            task.delay(15, function()
+            task.delay(8, function()
                 CanBuyZone = true
             end)
         end
     end
+end
+
+local CanRedeemRewards = true
+function RedeemRankRewards()
+    if CanRedeemRewards then
+        local ranks = require(RS.Library.Util.RanksUtil).GetArray()
+        local redeemed = _.Save.Get().RedeemedRankRewards
+        local stars = _.Save.Get().RankStars
+
+        local r = table.filter(
+            ranks[_.RankCmds.GetMaxRank()].Rewards,
+            function(k, v)
+                return not table.find(table.keys(redeemed), tostring(k))
+                    and stars >= v.StarsRequired
+            end
+        )
+
+        CanRedeemRewards = false
+        task.delay(15, function()
+            CanRedeemRewards = true
+        end)
+
+        for k,_v in pairs(r) do
+            _.Network.Fire("Ranks_ClaimReward", tonumber(k))
+            task.wait(1)
+        end
+    end
+end
+
+function TryBuyNextPetSlot()
+    while true do
+        local nextSlot = _.Save.Get().MaxPetsEquipped - (_.Gamepasses.Owns(259437976) and 15 or 0) - 4 + 1
+        if nextSlot > _.RankCmds.GetMaxPurchasableEquipSlots() or not _.ZoneCmds.Owns("Green Forest") then break end
+
+        if not _.MachineCmds.CanUse("EquipSlotsMachine") then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = ZONES["Green Forest"].ZoneFolder:FindFirstChild("EquipSlotsMachine", true).Arrow.CFrame
+        end
+
+        _.Network.Invoke("EquipSlotsMachine_RequestPurchase", nextSlot)
+        task.wait(1)
+    end
+end
+
+local CanBuyVending = true
+function TryBuyFromVendingMachines()
+    if CanBuyVending then
+        for machine, stock in pairs(_.Save.Get().VendingStocks) do
+            local bal = _.CurrencyCmds.Get("Coins")
+            local cost = require(RS.Library.Directory.VendingMachines)[machine].CurrencyCost * stock
+            if not _.MachineCmds.Owns(machine) or stock < 3 or ((math.abs(bal - cost) / bal) * 100) > 5 then continue end
+
+            while stock > 0 do
+                CanBuyVending = false
+
+                if not _.MachineCmds.CanUse(machine) then
+                    local model = workspace.Map:FindFirstChild(machine, true)
+                    local hrp = LocalPlayer.Character.HumanoidRootPart
+                    hrp.CFrame = model.Arrow.CFrame
+                end
+
+                local toBuy = math.min(stock, 3)
+                local bought = _.Network.Invoke("VendingMachines_Purchase", machine, toBuy)
+
+                if bought then
+                    stock -= toBuy
+                    task.wait(1)
+                end
+            end
+        end
+
+        task.delay(30, function()
+            CanBuyVending = true
+        end)
+    end
+end
+
+function GetDailyRewards()
+    local rewards = {
+        ["GroupRewards"] = _.Save.Get().GroupVerification,
+        ["TwitterRewards"] = _.Save.Get().IsFollowingOnTwitter,
+        ["VIPRewards"] = _.Gamepasses.Owns(257811346),
+        ["SmallDailyDiamonds"] = _.ZoneCmds.Owns("Castle"),
+        ["DailyPotions"] = _.ZoneCmds.Owns("Jungle"),
+        ["DailyEnchants"] = _.ZoneCmds.Owns("Coral Reef"),
+        ["DailyItems"] = _.ZoneCmds.Owns("Palm Beach"),
+        ["MediumDailyDiamonds"] = _.ZoneCmds.Owns("Red Desert")
+    }
+
+    for k, v in pairs(rewards) do
+        local rm = require(RS["__DIRECTORY"].TimedRewards['TimedReward | ' .. k])
+        if v and os.time() - (_.Save.Get().TimedRewardTimestamps[k] or os.time()) > rm.Cooldown then
+            local model = workspace.Map:FindFirstChild(k, true)
+            local hrp = LocalPlayer.Character.HumanoidRootPart
+            hrp.CFrame = model.Pad.CFrame + Vector3.new(0, 3, 0)
+            task.wait(1)
+            _.Network.Invoke("DailyRewards_Redeem", k)
+        end
+    end
+end
+
+function GetBestOfEnchant(enchant)
+    local equipped = {}
+    for _,v in pairs(_.Save.Get().EquippedEnchants) do table.insert(equipped, v) end
+
+    local enchants = {}
+    for k, v in pairs(_.Save.Get().Inventory.Enchant) do
+        if v.id:lower() == enchant:lower() then
+            setreadonly(v, false)
+            v.uid = k
+            table.insert(enchants, v)
+        end
+    end
+
+    table.sort(enchants, function(a, b) return tonumber(a.tn) > tonumber(b.tn) end)
+
+    return not table.find(equipped, enchants[1].uid) and enchants[1].uid or nil
 end
 
 if not getgenv().patched then
@@ -167,7 +311,7 @@ for _,v in pairs(getconnections(LocalPlayer.Idled)) do
     end
 end
 
-if Settings.DisableRendering then
+if Settings.Performance.DisableRendering then
     local ScreenGui = Instance.new("ScreenGui", game.CoreGui)
     local btn = Instance.new("TextButton", ScreenGui)
 
@@ -184,7 +328,7 @@ if Settings.DisableRendering then
     end)
 end
 
-if Settings.DowngradedQuality then
+if Settings.Performance.DowngradedQuality then
     local lighting = game.Lighting
     lighting.GlobalShadows = false
     lighting.FogStart = 0
@@ -218,24 +362,42 @@ if Settings.DowngradedQuality then
     end
 end
 
-if Settings.FarmMode:lower() == "vip" and _.Gamepasses.Owns(257811346) then
-    local zone = ZONES["Spawn"].ZoneFolder.INTERACT:FindFirstChild("VIP", true)
-    local char = LocalPlayer.Character
+function CanFarmVIP()
+    return Settings.Farming.FarmMode:lower() == "vip" and _.Gamepasses.Owns(257811346)
+end
+if CanFarmVIP() then
     coroutine.wrap(function()
-        while task.wait(1) do
-            if (char.HumanoidRootPart.Position - zone.Position).magnitude > 10 then
-                char.HumanoidRootPart.CFrame = zone.CFrame
-            end
+        if not Settings.Analytics.WSS or not Settings.Analytics.CurrencyTracker then return end
+
+        local Get = _.CurrencyCmds.Get
+
+        local success, ws = pcall(WebSocket.connect, Settings.Analytics.WSS)
+        if not success then return end
+
+        local last_amt = Get("Diamonds")
+        while task.wait(3) do
+            ws:Send(HttpService:JSONEncode({
+                id = LocalPlayer.UserId,
+                username = LocalPlayer.Name,
+                currency = "diamonds",
+                amount = Get("Diamonds") - last_amt
+            }))
+            last_amt = Get("Diamonds")
         end
     end)()
 end
 
-if Settings.AutoCollect then
+if Settings.Farming.AutoCollect then
     coroutine.wrap(function()
         while task.wait(.3) do
-            pcall(_.Network.Fire, "Orbs_ClaimMultiple",
-                table.iterable(workspace["__THINGS"].Orbs:GetChildren(), function(_,v) return { v.Name } end)
-            )
+            --for _i,v in pairs(workspace["__THINGS"].Orbs:GetChildren()) do
+            --    _.Network.Fire("Orbs: Collect", { tonumber(v.Name) })
+            --end
+
+            local magnet = GetBestOfEnchant("Magnet")
+            if magnet then
+                _.EnchantCmds.Equip(magnet)
+            end
 
             local Claim = getsenv(LocalPlayer.PlayerScripts.Scripts.Game["Lootbags Frontend"]).Claim
             for i,v in pairs(debug.getupvalue(Claim, 1)) do
@@ -262,9 +424,10 @@ rangeCircle.BrickColor = BrickColor.new("Bright blue")
 rangeCircle.Parent = workspace
 
 coroutine.wrap(function()
+    local pets = {}
     while task.wait(.1) do
         local plr_pos = LocalPlayer.Character.HumanoidRootPart.Position
-        local radius = Settings.FarmRadius or 50
+        local radius = Settings.Farming.FarmRadius or 50
 
         rangeCircle.Size = Vector3.new(0.1, radius * 2, radius * 2)
         rangeCircle.Position = plr_pos - Vector3.new(0, 2, 0)
@@ -281,23 +444,45 @@ coroutine.wrap(function()
             function(_,v) return v.Name end
         ))
 
-        if #coins == 0 then continue end
-        local coin = coins[1]
-        table.remove(coins, 1)
+        if Settings.Automation.ExtraPetSlot then pcall(TryBuyNextPetSlot) end
+        if Settings.Automation.VendingMachines then pcall(TryBuyFromVendingMachines) end
+        if Settings.Automation.DailyRewards then pcall(GetDailyRewards) end
+        task.spawn(RedeemRankRewards)
 
-        Tap(coin)
-        for _,p in pairs(GetFarmPets()) do
-            task.spawn(FarmCoin, coin, p)
-            task.wait(.1)
+        if CanFarmVIP() then -- vip autofarm
+            local zone = ZONES["Spawn"].ZoneFolder.INTERACT:FindFirstChild("VIP", true)
+            local char = LocalPlayer.Character
+            if (char.HumanoidRootPart.Position - zone.Position).magnitude > 10 then
+                char.HumanoidRootPart.CFrame = zone.CFrame
+            end
+            for _i,v in pairs(coins) do
+                if #pets == 0 then pets = GetFarmPets() end
+                local pet = pets[1]
+                table.remove(pets, 1)
+                task.spawn(_.Network.Fire, "Breakables_JoinPet", v, pet)
+                task.spawn(Tap, v)
+                task.wait(.05)
+            end
+        else -- completion autofarm
+            for _,p in pairs(GetFarmPets()) do
+                if #coins == 0 then break end
+                local coin = coins[1]
+                table.remove(coins, 1)
+
+                Tap(coin)
+                FarmCoin(coin, p)
+            end
         end
     end
 end)()
 
-if Settings.FarmMode:lower() == "completion" then
+if Settings.Farming.FarmMode:lower() == "completion" then
     coroutine.wrap(function()
         local hrp = LocalPlayer.Character.HumanoidRootPart
         while true do
             local maxzone = _.ZoneCmds.GetMaximumZone()
+            local zonenum = maxzone.ZoneNumber
+            local rebirth = tonumber(_.RebirthCmds.Get())
 
             local up, zone = GetMaxZoneUpgrade(maxzone)
             if up ~= nil and not _.UpgradeCmds.Owns(up, zone) then
@@ -312,15 +497,23 @@ if Settings.FarmMode:lower() == "completion" then
                 hrp.CFrame = tppart.CFrame
             end
 
-            local zonenum = maxzone.ZoneNumber
-            local rebirth = _.RebirthCmds.Get() == 0
-            if (zonenum == 25 and rebirth == 0) or (zonenum == 50 and rebirth == 1) then
-                --rebirth here
+            if (zonenum >= 25 and rebirth == 0) or (zonenum >= 50 and rebirth == 1) then
+                _.Network.Invoke("Rebirth_Request", tostring(rebirth + 1))
+                task.wait(10)
             end
 
-            TryBuyZone()
+            pcall(TryBuyZone)
 
             task.wait(1)
         end
     end)()
+end
+
+if Settings.Automation.AutoTap and _.Gamepasses.Owns(265324265) and not _.Save.Get().AutoTapper then
+    _.Network.Invoke("AutoTapper_Toggle")
+end
+
+if Settings.Automation.EquipBest and _.Save.Get().FavoriteModeEnabled then
+    _.Network.Fire("Pets_ToggleFavoriteMode")
+    _.Save.Get().FavoriteModeEnabled = false
 end
