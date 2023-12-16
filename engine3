@@ -1,14 +1,14 @@
 getgenv().Settings = {
     Farming = {
-        FarmMode = "VIP", -- VIP / Completion
+        FarmMode = "Completion", -- VIP / Completion
         FarmRadius = 60,
         AutoCollect = true
     },
 
     Automation = {
-        ExtraPetSlot = true,
+        ExtraPetSlot = false,
         VendingMachines = true,
-        DailyRewards = true,
+        DailyRewards = false,
 
         AutoTap = true,
         EquipBest = true
@@ -27,7 +27,7 @@ getgenv().Settings = {
 
 local Settings = getgenv().Settings
 
-repeat task.wait(10) until game:IsLoaded()
+repeat task.wait(5) until game:IsLoaded()
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -206,7 +206,7 @@ function TryBuyFromVendingMachines()
         for machine, stock in pairs(_.Save.Get().VendingStocks) do
             local bal = _.CurrencyCmds.Get("Coins")
             local cost = require(RS.Library.Directory.VendingMachines)[machine].CurrencyCost * stock
-            if not _.MachineCmds.Owns(machine) or stock < 3 or ((math.abs(bal - cost) / bal) * 100) > 5 then continue end
+            if not _.MachineCmds.Owns(machine) or stock < 3 or ((cost / bal) * 100) > 5 then continue end
 
             while stock > 0 do
                 CanBuyVending = false
@@ -273,6 +273,18 @@ function GetBestOfEnchant(enchant)
     table.sort(enchants, function(a, b) return tonumber(a.tn) > tonumber(b.tn) end)
 
     return not table.find(equipped, enchants[1].uid) and enchants[1].uid or nil
+end
+
+function EatAllFruit(fruit)
+    for k,v in pairs(_.Save.Get().Inventory.Fruit) do
+        if v.id == fruit then
+            while #(_.FruitCmds.GetActiveFruits()[fruit] or {}) < 20 do
+                _.FruitCmds.Consume(k)
+                task.wait(.1)
+            end
+            break
+        end
+    end
 end
 
 if not getgenv().patched then
@@ -371,18 +383,30 @@ if CanFarmVIP() then
 
         local Get = _.CurrencyCmds.Get
 
-        local success, ws = pcall(WebSocket.connect, Settings.Analytics.WSS)
-        if not success then return end
+        local success, ws = false, nil
+        local function ConnectWS()
+            repeat
+                success, ws = pcall(WebSocket.connect, Settings.Analytics.WSS)
+                if not success then task.wait(10) end
+            until success
+        end
 
         local last_amt = Get("Diamonds")
-        while task.wait(3) do
+        while task.wait(10) do
+            if not ws then ConnectWS() end
+
+            local dims = Get("Diamonds")
+            local d = dims - last_amt
+            last_amt = Get("Diamonds")
+
+            if d <= 0 then continue end
+                
             ws:Send(HttpService:JSONEncode({
                 id = LocalPlayer.UserId,
                 username = LocalPlayer.Name,
                 currency = "diamonds",
-                amount = Get("Diamonds") - last_amt
+                amount = d
             }))
-            last_amt = Get("Diamonds")
         end
     end)()
 end
@@ -394,8 +418,8 @@ if Settings.Farming.AutoCollect then
             --    _.Network.Fire("Orbs: Collect", { tonumber(v.Name) })
             --end
 
-            local magnet = GetBestOfEnchant("Magnet")
-            if magnet then
+            local success, magnet = pcall(GetBestOfEnchant, "Magnet")
+            if success then
                 _.EnchantCmds.Equip(magnet)
             end
 
@@ -447,14 +471,17 @@ coroutine.wrap(function()
         if Settings.Automation.ExtraPetSlot then pcall(TryBuyNextPetSlot) end
         if Settings.Automation.VendingMachines then pcall(TryBuyFromVendingMachines) end
         if Settings.Automation.DailyRewards then pcall(GetDailyRewards) end
-        task.spawn(RedeemRankRewards)
+        pcall(task.spawn, RedeemRankRewards)
 
         if CanFarmVIP() then -- vip autofarm
             local zone = ZONES["Spawn"].ZoneFolder.INTERACT:FindFirstChild("VIP", true)
             local char = LocalPlayer.Character
-            if (char.HumanoidRootPart.Position - zone.Position).magnitude > 10 then
+            if (char.HumanoidRootPart.Position - zone.Position).magnitude > 5 then
                 char.HumanoidRootPart.CFrame = zone.CFrame
             end
+
+            pcall(EatAllFruit, "Orange")
+            
             for _i,v in pairs(coins) do
                 if #pets == 0 then pets = GetFarmPets() end
                 local pet = pets[1]
