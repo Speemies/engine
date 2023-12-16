@@ -15,7 +15,7 @@ getgenv().Settings = {
     },
 
     Analytics = {
-        WSS = "",
+        WSS = "ws://localhost:6431",
         CurrencyTracker = true
     },
 
