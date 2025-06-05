@@ -32,26 +32,6 @@ Explorer = function()
 	The main explorer interface
 ]]
 
--- Common Locals
-
-local Decompile do
-	local Success, Decompile_Source = pcall(function()
-		return game:HttpGet("https://raw.githubusercontent.com/Speemies/engine/refs/heads/main/decompile.lua", true)
-	end)
-
-	if Success and Decompile_Source then
-		-- Execute the decompiler script to make functions available globally
-		local loadSuccess = pcall(function()
-			loadstring(Decompile_Source)()
-		end)
-
-		if loadSuccess then
-			local _ENV = (getgenv or getrenv or getfenv)()
-			Decompile = _ENV.decompile
-		end
-	end
-end
-
 local Main,Lib,Apps,Settings -- Main Containers
 local Explorer, Properties, ScriptViewer, Notebook -- Major Apps
 local API,RMD,env,service,plr,create,createSimple -- Main Locals
