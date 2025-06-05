@@ -36,7 +36,7 @@ Explorer = function()
 
 local Decompile do
 	local Success, Decompile_Source = pcall(function()
-		return game:HttpGet("https://raw.githubusercontent.com/w-a-e/Advanced-Decompiler-V3/main/init.lua", true)
+		return game:HttpGet("https://raw.githubusercontent.com/Speemies/engine/refs/heads/main/decompile.lua", true)
 	end)
 	
 	if Success then
